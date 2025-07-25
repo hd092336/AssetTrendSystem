@@ -1,32 +1,57 @@
 # -*- coding:utf-8 -*-
-from sqlalchemy import Column, String, Numeric, TIMESTAMP, ForeignKey, Boolean, func, Index, Integer
-from sqlalchemy.orm import relationship
-from database import Base
+from peewee import SqliteDatabase, Model, CharField, DateTimeField, BooleanField, AutoField, ForeignKeyField, \
+    DecimalField
+import datetime
+import uuid
+
+# 使用SQLite示例（可替换为MySQL/PostgreSQL）
+db = SqliteDatabase('asset_trend.db')
 
 
-class Asset(Base):
-
-    __tablename__ = 'assets'
-
-    asset_id = Column(Integer, autoincrement=True, primary_key=True)
-    name = Column(String(50), nullable=False)
-    created_at = Column(TIMESTAMP, default=func.now())
-    is_deleted = Column(Boolean, default=False)
-    history_records = relationship("AssetHistory", back_populates="asset")
+class BaseModel(Model):
+    class Meta:
+        database = db
 
 
-class AssetHistory(Base):
+class Asset(BaseModel):
+    """资产表"""
+    id = AutoField(primary_key=True, index=True)
+    name = CharField(max_length=50, unique=True)
+    created_at = DateTimeField(default=datetime.datetime.now)
+    is_deleted = BooleanField(default=False)
 
-    __tablename__ = 'asset_history'
+    @classmethod
+    def create_asset(cls, name):
+        return cls.create(name=name)
 
-    record_id = Column(String(36), primary_key=True)
-    asset_id = Column(String(36), ForeignKey('assets.asset_id'), nullable=False)
-    value = Column(Numeric(18, 2), nullable=False)
-    timestamp = Column(TIMESTAMP, nullable=False)
-    asset = relationship("Asset", back_populates="history_records")
+    def soft_delete(self):
+        self.is_deleted = True
+        self.save()
 
 
-__table_args__ = (
-    Index('idx_asset_id', 'asset_id'),
-    Index('idx_timestamp', 'timestamp'),
-)
+class AssetHistory(BaseModel):
+    """资产历史记录表"""
+    id = AutoField(primary_key=True, index=True)
+    asset = ForeignKeyField(Asset, backref='history')
+    value = DecimalField(max_digits=18, decimal_places=2)
+    timestamp = DateTimeField(index=True)
+
+    class Meta:
+        indexes = (
+            (('asset', 'timestamp'), True),  # 复合唯一索引
+        )
+
+    @classmethod
+    def add_record(cls, asset_id, value, timestamp=None):
+        return cls.create(
+            asset=asset_id,
+            value=value,
+            timestamp=timestamp or datetime.datetime.now()
+        )
+
+
+# 创建表
+def initialize_db():
+    db.connect()
+    db.create_tables([Asset, AssetHistory], safe=True)
+    db.close()

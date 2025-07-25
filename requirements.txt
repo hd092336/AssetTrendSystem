@@ -1,2 +1,2 @@
 fastapi[standard]==0.115.14
-SQLAlchemy==2.0.41
+peewee==3.18.2

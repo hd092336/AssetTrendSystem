@@ -11,15 +11,16 @@ class AssetBase(BaseModel):
 
 
 class AssetCreate(AssetBase):
-    asset_id: Optional[str] = None
+    pass
 
 
 class Asset(AssetBase):
-    created_at: datetime = datetime.now()
+    id: int
+    created_at: datetime
     is_deleted: bool = False
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class AssetHistoryBase(BaseModel):
@@ -28,13 +29,12 @@ class AssetHistoryBase(BaseModel):
 
 
 class AssetHistoryCreate(AssetHistoryBase):
-    record_id: Optional[str] = None
-    asset_id: str
+    asset_id: int
 
 
 class AssetHistory(AssetHistoryBase):
-    record_id: str
-    asset_id: str
+    id: int
+    asset_id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True

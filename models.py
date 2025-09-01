@@ -2,7 +2,6 @@
 from peewee import SqliteDatabase, Model, CharField, DateTimeField, BooleanField, AutoField, ForeignKeyField, \
     DecimalField
 import datetime
-import uuid
 
 # 使用SQLite示例（可替换为MySQL/PostgreSQL）
 db = SqliteDatabase('asset_trend.db')
@@ -22,7 +21,7 @@ class Asset(BaseModel):
 
     @classmethod
     def create_asset(cls, name):
-        return cls.create(name=name)
+        return cls.get_or_create(name=name)
 
     def soft_delete(self):
         self.is_deleted = True

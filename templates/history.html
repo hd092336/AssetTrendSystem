@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}历史记录 - Asset Trend System{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>资产历史记录</h2>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addHistoryModal">添加记录</button>
+</div>
+
+<div class="row mb-3">
+    <div class="col-md-6">
+        <label for="assetSelect" class="form-label">选择资产</label>
+        <select class="form-select" id="assetSelect">
+            <option value="">请选择资产</option>
+            {% for asset in assets %}
+            <option value="{{ asset.id }}">{{ asset.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+</div>
+
+<div class="table-responsive">
+    <table class="table table-striped table-hover" id="historyTable">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>资产</th>
+                <th>价值</th>
+                <th>时间</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- 数据将通过JavaScript动态加载 -->
+        </tbody>
+    </table>
+</div>
+
+<!-- 添加历史记录模态框 -->
+<div class="modal fade" id="addHistoryModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">添加历史记录</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addHistoryForm">
+                    <div class="mb-3">
+                        <label for="historyAsset" class="form-label">资产</label>
+                        <select class="form-select" id="historyAsset" required>
+                            <option value="">请选择资产</option>
+                            {% for asset in assets %}
+                            <option value="{{ asset.id }}">{{ asset.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="historyValue" class="form-label">价值</label>
+                        <input type="number" class="form-control" id="historyValue" step="0.01" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="historyTimestamp" class="form-label">时间</label>
+                        <input type="datetime-local" class="form-control" id="historyTimestamp" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="addHistory()">添加</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 当选择资产时加载历史记录
+    document.getElementById('assetSelect').addEventListener('change', function() {
+        const assetId = this.value;
+        if (assetId) {
+            loadHistory(assetId);
+        } else {
+            document.getElementById('historyTable').getElementsByTagName('tbody')[0].innerHTML = '';
+        }
+    });
+
+    function loadHistory(assetId) {
+        fetch(`/history/?asset_id=${assetId}`)
+        .then(response => response.json())
+        .then(data => {
+            const tbody = document.getElementById('historyTable').getElementsByTagName('tbody')[0];
+            tbody.innerHTML = '';
+            
+            data.forEach(record => {
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td>${record.id}</td>
+                    <td>${getAssetName(record.asset_id)}</td>
+                    <td>${record.value}</td>
+                    <td>${new Date(record.timestamp).toLocaleString()}</td>
+                `;
+            });
+        })
+        .catch(error => {
+            console.error('加载历史记录失败:', error);
+        });
+    }
+
+    function getAssetName(assetId) {
+        const select = document.getElementById('assetSelect');
+        for (let option of select.options) {
+            if (option.value == assetId) {
+                return option.text;
+            }
+        }
+        return assetId;
+    }
+
+    function addHistory() {
+        const assetId = document.getElementById('historyAsset').value;
+        const value = document.getElementById('historyValue').value;
+        const timestamp = document.getElementById('historyTimestamp').value;
+
+        if (!assetId || !value || !timestamp) {
+            alert('请填写所有字段');
+            return;
+        }
+
+        fetch('/history/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                asset_id: parseInt(assetId),
+                value: parseFloat(value),
+                timestamp: new Date(timestamp).toISOString()
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.id) {
+                // 如果当前正在查看该资产的历史记录，则刷新显示
+                const currentAsset = document.getElementById('assetSelect').value;
+                if (currentAsset == assetId) {
+                    loadHistory(assetId);
+                }
+                // 关闭模态框
+                bootstrap.Modal.getInstance(document.getElementById('addHistoryModal')).hide();
+                // 清空表单
+                document.getElementById('addHistoryForm').reset();
+            } else {
+                alert('添加失败: ' + JSON.stringify(data));
+            }
+        })
+        .catch(error => {
+            alert('添加失败: ' + error);
+        });
+    }
+</script>
+{% endblock %}

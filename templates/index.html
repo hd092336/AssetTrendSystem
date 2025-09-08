@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}主页 - Asset Trend System{% endblock %}
+
+{% block content %}
+<div class="jumbotron">
+    <h1 class="display-4">欢迎使用 Asset Trend System</h1>
+    <p class="lead">这是一个用于资产管理和趋势分析的系统。</p>
+    <hr class="my-4">
+    {% if current_user %}
+        <p>您已成功登录系统，可以开始管理您的资产了。</p>
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">资产管理</h5>
+                        <p class="card-text">创建和管理您的资产</p>
+                        <a href="/assets" class="btn btn-primary">查看资产</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">趋势分析</h5>
+                        <p class="card-text">查看资产价值趋势</p>
+                        <a href="/trend" class="btn btn-primary">查看趋势</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">历史记录</h5>
+                        <p class="card-text">查看资产历史数据</p>
+                        <a href="/history" class="btn btn-primary">查看历史</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% else %}
+        <p>请登录或注册以使用系统功能。</p>
+        <p class="lead">
+            <a class="btn btn-primary btn-lg" href="/login" role="button">登录</a>
+            <a class="btn btn-secondary btn-lg" href="/register" role="button">注册</a>
+        </p>
+    {% endif %}
+</div>
+{% endblock %}

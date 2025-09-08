@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+
+{% block title %}资产管理 - Asset Trend System{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>资产管理</h2>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addAssetModal">添加资产</button>
+</div>
+
+{% if assets %}
+<div class="table-responsive">
+    <table class="table table-striped table-hover">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>资产名称</th>
+                <th>创建时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for asset in assets %}
+            <tr>
+                <td>{{ asset.id }}</td>
+                <td>{{ asset.name }}</td>
+                <td>{{ asset.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary" 
+                            onclick="editAsset({{ asset.id }}, '{{ asset.name }}')">编辑</button>
+                    <button class="btn btn-sm btn-outline-danger" 
+                            onclick="deleteAsset({{ asset.id }})">删除</button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="alert alert-info">暂无资产数据</div>
+{% endif %}
+
+<!-- 添加资产模态框 -->
+<div class="modal fade" id="addAssetModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">添加资产</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addAssetForm">
+                    <div class="mb-3">
+                        <label for="assetName" class="form-label">资产名称</label>
+                        <input type="text" class="form-control" id="assetName" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="addAsset()">添加</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑资产模态框 -->
+<div class="modal fade" id="editAssetModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">编辑资产</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editAssetForm">
+                    <input type="hidden" id="editAssetId">
+                    <div class="mb-3">
+                        <label for="editAssetName" class="form-label">资产名称</label>
+                        <input type="text" class="form-control" id="editAssetName" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="updateAsset()">更新</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function addAsset() {
+        const name = document.getElementById('assetName').value;
+        if (!name) {
+            alert('请输入资产名称');
+            return;
+        }
+
+        fetch('/assets/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ name: name })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.id) {
+                location.reload();
+            } else {
+                alert('添加失败: ' + JSON.stringify(data));
+            }
+        })
+        .catch(error => {
+            alert('添加失败: ' + error);
+        });
+    }
+
+    function editAsset(id, name) {
+        document.getElementById('editAssetId').value = id;
+        document.getElementById('editAssetName').value = name;
+        new bootstrap.Modal(document.getElementById('editAssetModal')).show();
+    }
+
+    function updateAsset() {
+        const id = document.getElementById('editAssetId').value;
+        const name = document.getElementById('editAssetName').value;
+        
+        if (!name) {
+            alert('请输入资产名称');
+            return;
+        }
+
+        fetch(`/assets/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ name: name })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.id) {
+                location.reload();
+            } else {
+                alert('更新失败: ' + JSON.stringify(data));
+            }
+        })
+        .catch(error => {
+            alert('更新失败: ' + error);
+        });
+    }
+
+    function deleteAsset(id) {
+        if (!confirm('确定要删除这个资产吗？')) {
+            return;
+        }
+
+        fetch(`/assets/${id}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            location.reload();
+        })
+        .catch(error => {
+            alert('删除失败: ' + error);
+        });
+    }
+</script>
+{% endblock %}

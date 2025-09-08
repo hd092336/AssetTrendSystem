@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}趋势分析 - Asset Trend System{% endblock %}
+
+{% block content %}
+<h2>资产趋势分析</h2>
+
+<div class="row mb-3">
+    <div class="col-md-12">
+        <form id="trendForm" class="row g-3">
+            <div class="col-md-4">
+                <label for="startDate" class="form-label">开始日期</label>
+                <input type="date" class="form-control" id="startDate">
+            </div>
+            <div class="col-md-4">
+                <label for="endDate" class="form-label">结束日期</label>
+                <input type="date" class="form-control" id="endDate">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">&nbsp;</label>
+                <div>
+                    <button type="button" class="btn btn-primary" onclick="loadTrend()">查看趋势</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="trendChart" class="mt-4">
+    <!-- 图表将在这里显示 -->
+</div>
+
+<script>
+    // 设置默认日期范围（最近30天）
+    window.onload = function() {
+        const today = new Date();
+        const oneMonthAgo = new Date();
+        oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+        
+        document.getElementById('startDate').valueAsDate = oneMonthAgo;
+        document.getElementById('endDate').valueAsDate = today;
+    };
+
+    function loadTrend() {
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+        
+        let url = '/trend/plot';
+        if (startDate && endDate) {
+            url += `?start_date=${startDate}&end_date=${endDate}`;
+        } else if (startDate) {
+            url += `?start_date=${startDate}`;
+        } else if (endDate) {
+            url += `?end_date=${endDate}`;
+        }
+        
+        fetch(url)
+        .then(response => response.text())
+        .then(html => {
+            document.getElementById('trendChart').innerHTML = html;
+        })
+        .catch(error => {
+            console.error('加载趋势图失败:', error);
+            document.getElementById('trendChart').innerHTML = '<div class="alert alert-danger">加载趋势图失败</div>';
+        });
+    }
+</script>
+{% endblock %}

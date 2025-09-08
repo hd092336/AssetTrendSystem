@@ -1,7 +1,10 @@
 # -*- coding:utf-8 -*-
+import datetime
+import hashlib
+import secrets
+
 from peewee import SqliteDatabase, Model, CharField, DateTimeField, BooleanField, AutoField, ForeignKeyField, \
     DecimalField
-import datetime
 
 # 使用SQLite示例（可替换为MySQL/PostgreSQL）
 db = SqliteDatabase('asset_trend.db')
@@ -10,6 +13,39 @@ db = SqliteDatabase('asset_trend.db')
 class BaseModel(Model):
     class Meta:
         database = db
+
+
+class User(BaseModel):
+    """用户表"""
+    id = AutoField(primary_key=True, index=True)
+    username = CharField(max_length=50, unique=True)
+    email = CharField(max_length=100, unique=True)
+    hashed_password = CharField(max_length=128)
+    salt = CharField(max_length=32)
+    created_at = DateTimeField(default=datetime.datetime.now)
+    is_active = BooleanField(default=True)
+
+    def verify_password(self, plain_password):
+        return self.hashed_password == self.hash_password(plain_password, self.salt)
+
+    @staticmethod
+    def hash_password(password, salt=None):
+        if salt is None:
+            salt = secrets.token_hex(16)
+        # 使用SHA-256哈希算法
+        hashed = hashlib.sha256((password + salt).encode('utf-8')).hexdigest()
+        return hashed
+
+    @classmethod
+    def create_user(cls, username, email, password):
+        salt = secrets.token_hex(16)
+        hashed_password = cls.hash_password(password, salt)
+        return cls.create(
+            username=username,
+            email=email,
+            hashed_password=hashed_password,
+            salt=salt
+        )
 
 
 class Asset(BaseModel):
@@ -52,5 +88,5 @@ class AssetHistory(BaseModel):
 # 创建表
 def initialize_db():
     db.connect()
-    db.create_tables([Asset, AssetHistory], safe=True)
+    db.create_tables([User, Asset, AssetHistory], safe=True)
     db.close()

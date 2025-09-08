@@ -1,7 +1,37 @@
 # -*- coding:utf-8 -*-
-from models import *
 import matplotlib.pyplot as plt
 import pandas as pd
+
+from models import *
+
+
+class UserManager:
+    """用户管理操作"""
+
+    @staticmethod
+    def create_user(username: str, email: str, password: str):
+        try:
+            user = User.create_user(username, email, password)
+            return user
+        except Exception as e:
+            raise ValueError(f"创建用户失败: {str(e)}")
+
+    @staticmethod
+    def authenticate_user(username: str, password: str):
+        try:
+            user = User.get(User.username == username)
+            if user.verify_password(password):
+                return user
+        except User.DoesNotExist:
+            return None
+        return None
+
+    @staticmethod
+    def get_user_by_id(user_id: int):
+        try:
+            return User.get(User.id == user_id)
+        except User.DoesNotExist:
+            return None
 
 
 class AssetManager:

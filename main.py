@@ -1,23 +1,24 @@
 # -*- coding:utf-8 -*-
 """
 """
-from datetime import datetime
-from typing import List
-from io import BytesIO
 import base64
-import matplotlib
+import secrets
+from datetime import datetime, timedelta, timezone
+from io import BytesIO
+from typing import List
 
-from fastapi import FastAPI, Depends, HTTPException, Request, Form
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+import matplotlib
 import matplotlib.pyplot as plt
 import pandas as pd
+from fastapi import FastAPI, Depends, HTTPException, Request, Form, Response
+from fastapi.responses import HTMLResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.templating import Jinja2Templates
 from peewee import DoesNotExist
 
+from models import Asset, AssetHistory, User, db, initialize_db
 from operations import TrendCalculator, AssetManager, UserManager
 from schemas import AssetHistoryCreate, AssetCreate, Asset as AssetResp, AssetHistory as AssetHistoryResp, UserCreate
-from models import Asset, AssetHistory, User, db, initialize_db
 
 # 设置matplotlib后端以避免线程问题
 matplotlib.use('Agg')
@@ -30,6 +31,27 @@ templates = Jinja2Templates(directory="templates")
 # HTTP Basic Auth
 security = HTTPBasic()
 
+# Session配置
+SESSION_KEY = "session_token"
+SESSIONS = {}  # 简单的内存session存储，实际应用中应使用Redis等
+SESSION_TIMEOUT = timedelta(minutes=30)  # 30分钟无操作自动退出
+
+# 定义北京时间时区
+BEIJING_TZ = timezone(timedelta(hours=8))
+
+
+class SessionData:
+    def __init__(self, user_id: int, username: str):
+        self.user_id = user_id
+        self.username = username
+        self.last_activity = datetime.now(BEIJING_TZ)
+    
+    def is_valid(self):
+        return datetime.now(BEIJING_TZ) - self.last_activity < SESSION_TIMEOUT
+    
+    def update_activity(self):
+        self.last_activity = datetime.now(BEIJING_TZ)
+
 
 def get_db():
     try:
@@ -38,11 +60,64 @@ def get_db():
         db.close()
 
 
-def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
-    user = UserManager.authenticate_user(credentials.username, credentials.password)
-    if not user:
-        raise HTTPException(status_code=401, detail="无效的用户名或密码")
-    return user
+def get_current_user_from_session(request: Request):
+    """从session中获取当前用户"""
+    session_token = request.cookies.get(SESSION_KEY)
+    if not session_token or session_token not in SESSIONS:
+        return None
+    
+    session_data = SESSIONS[session_token]
+    if not session_data.is_valid():
+        # Session过期，删除它
+        del SESSIONS[session_token]
+        return None
+    
+    # 更新活动时间
+    session_data.update_activity()
+    return session_data
+
+
+def get_current_user(request: Request, credentials: HTTPBasicCredentials = Depends(security)):
+    """获取当前用户 - 支持session和HTTP Basic认证"""
+    # 首先检查session
+    session_user = get_current_user_from_session(request)
+    if session_user:
+        try:
+            return User.get(User.id == session_user.user_id)
+        except User.DoesNotExist:
+            pass
+    
+    # 如果没有有效session，尝试HTTP Basic认证
+    if credentials:
+        user = UserManager.authenticate_user(credentials.username, credentials.password)
+        if user:
+            return user
+    
+    # 认证失败
+    raise HTTPException(status_code=401, detail="无效的用户名或密码")
+
+
+def create_session_response(response: Response, user: User):
+    """创建带有session cookie的响应"""
+    # 生成session token
+    session_token = secrets.token_urlsafe(32)
+    
+    # 存储session数据
+    SESSIONS[session_token] = SessionData(user.id, user.username)
+    
+    # 设置cookie，转换为UTC时间以满足usegmt=True的要求
+    beijing_time = datetime.now(BEIJING_TZ) + SESSION_TIMEOUT
+    utc_time = beijing_time.astimezone(timezone.utc)
+    
+    response.set_cookie(
+        key=SESSION_KEY,
+        value=session_token,
+        httponly=True,
+        max_age=int(SESSION_TIMEOUT.total_seconds()),
+        expires=utc_time
+    )
+    
+    return response
 
 
 @app.post("/users/register")
@@ -217,17 +292,29 @@ def plot_asset_trend(
 # 前端页面路由
 @app.get("/", response_class=HTMLResponse)
 def root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    session_user = get_current_user_from_session(request)
+    context = {"request": request}
+    if session_user:
+        context["current_user"] = {"username": session_user.username}
+    return templates.TemplateResponse("index.html", context)
 
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
+    session_user = get_current_user_from_session(request)
+    if session_user:
+        # 如果已经登录，重定向到主页
+        return templates.TemplateResponse("index.html", {
+            "request": request,
+            "current_user": {"username": session_user.username}
+        })
     return templates.TemplateResponse("login.html", {"request": request})
 
 
 @app.post("/login", response_class=HTMLResponse)
 def login_post(
         request: Request,
+        response: Response,
         username: str = Form(...),
         password: str = Form(...)
 ):
@@ -238,11 +325,24 @@ def login_post(
             "error": "用户名或密码错误"
         })
 
-    # 这里应该设置会话或cookie，但为了简化，我们直接跳转到主页
-    return templates.TemplateResponse("index.html", {
+    # 创建session并设置cookie
+    resp = templates.TemplateResponse("index.html", {
         "request": request,
         "current_user": user
     })
+    create_session_response(resp, user)
+    return resp
+
+
+@app.get("/logout", response_class=HTMLResponse)
+def logout(request: Request, response: Response):
+    session_token = request.cookies.get(SESSION_KEY)
+    if session_token and session_token in SESSIONS:
+        del SESSIONS[session_token]
+    
+    response = templates.TemplateResponse("index.html", {"request": request})
+    response.delete_cookie(SESSION_KEY)
+    return response
 
 
 @app.get("/register", response_class=HTMLResponse)
@@ -278,31 +378,58 @@ def register_post(
 
 
 @app.get("/assets", response_class=HTMLResponse)
-def assets_page(request: Request, current_user: User = Depends(get_current_user)):
-    assets = AssetManager.list_assets()
-    return templates.TemplateResponse("assets.html", {
-        "request": request,
-        "assets": assets,
-        "current_user": current_user
-    })
+def assets_page(request: Request):
+    session_user = get_current_user_from_session(request)
+    if not session_user:
+        # 未登录重定向到登录页
+        return templates.TemplateResponse("login.html", {"request": request})
+    
+    try:
+        user = User.get(User.id == session_user.user_id)
+        assets = AssetManager.list_assets()
+        return templates.TemplateResponse("assets.html", {
+            "request": request,
+            "assets": assets,
+            "current_user": user
+        })
+    except User.DoesNotExist:
+        return templates.TemplateResponse("login.html", {"request": request})
 
 
 @app.get("/history", response_class=HTMLResponse)
-def history_page(request: Request, current_user: User = Depends(get_current_user)):
-    assets = AssetManager.list_assets()
-    return templates.TemplateResponse("history.html", {
-        "request": request,
-        "assets": assets,
-        "current_user": current_user
-    })
+def history_page(request: Request):
+    session_user = get_current_user_from_session(request)
+    if not session_user:
+        # 未登录重定向到登录页
+        return templates.TemplateResponse("login.html", {"request": request})
+    
+    try:
+        user = User.get(User.id == session_user.user_id)
+        assets = AssetManager.list_assets()
+        return templates.TemplateResponse("history.html", {
+            "request": request,
+            "assets": assets,
+            "current_user": user
+        })
+    except User.DoesNotExist:
+        return templates.TemplateResponse("login.html", {"request": request})
 
 
 @app.get("/trend", response_class=HTMLResponse)
-def trend_page(request: Request, current_user: User = Depends(get_current_user)):
-    return templates.TemplateResponse("trend.html", {
-        "request": request,
-        "current_user": current_user
-    })
+def trend_page(request: Request):
+    session_user = get_current_user_from_session(request)
+    if not session_user:
+        # 未登录重定向到登录页
+        return templates.TemplateResponse("login.html", {"request": request})
+    
+    try:
+        user = User.get(User.id == session_user.user_id)
+        return templates.TemplateResponse("trend.html", {
+            "request": request,
+            "current_user": user
+        })
+    except User.DoesNotExist:
+        return templates.TemplateResponse("login.html", {"request": request})
 
 
 if __name__ == "__main__":

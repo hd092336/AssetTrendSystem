@@ -17,10 +17,13 @@
                 <input type="date" class="form-control" id="endDate">
             </div>
             <div class="col-md-4">
-                <label class="form-label">&nbsp;</label>
-                <div>
-                    <button type="button" class="btn btn-primary" onclick="loadTrend()">查看趋势</button>
-                </div>
+                <label for="assetSelect" class="form-label">选择资产</label>
+                <select id="assetSelect" class="form-select" multiple aria-label="多选资产">
+                    <!-- 资产选项将通过JavaScript动态加载 -->
+                </select>
+            </div>
+            <div class="col-md-12 mt-3">
+                <button type="button" class="btn btn-primary" onclick="loadTrend()">查看趋势</button>
             </div>
         </form>
     </div>
@@ -31,27 +34,60 @@
 </div>
 
 <script>
-    // 设置默认日期范围（最近30天）
-    window.onload = function() {
+    // 页面加载完成后获取资产列表
+    window.addEventListener('DOMContentLoaded', function() {
+        loadAssets();
+        
+        // 设置默认日期范围（最近30天）
         const today = new Date();
         const oneMonthAgo = new Date();
         oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
         
         document.getElementById('startDate').valueAsDate = oneMonthAgo;
         document.getElementById('endDate').valueAsDate = today;
-    };
+    });
+
+    // 获取资产列表并填充下拉框
+    function loadAssets() {
+        fetch('/assets/')
+        .then(response => response.json())
+        .then(assets => {
+            const select = document.getElementById('assetSelect');
+            assets.forEach(asset => {
+                const option = document.createElement('option');
+                option.value = asset.id;
+                option.textContent = asset.name;
+                select.appendChild(option);
+            });
+        })
+        .catch(error => {
+            console.error('加载资产列表失败:', error);
+        });
+    }
 
     function loadTrend() {
         const startDate = document.getElementById('startDate').value;
         const endDate = document.getElementById('endDate').value;
+        const selectedAssets = Array.from(document.getElementById('assetSelect').selectedOptions)
+                                    .map(option => option.value);
         
         let url = '/trend/plot';
-        if (startDate && endDate) {
-            url += `?start_date=${startDate}&end_date=${endDate}`;
-        } else if (startDate) {
-            url += `?start_date=${startDate}`;
-        } else if (endDate) {
-            url += `?end_date=${endDate}`;
+        const params = new URLSearchParams();
+        
+        if (startDate) {
+            params.append('start_date', startDate);
+        }
+        
+        if (endDate) {
+            params.append('end_date', endDate);
+        }
+        
+        if (selectedAssets.length > 0) {
+            params.append('asset_ids', selectedAssets.join(','));
+        }
+        
+        if (params.toString()) {
+            url += '?' + params.toString();
         }
         
         fetch(url)

@@ -219,6 +219,7 @@ def read_asset_history(asset_id: int, start_time: datetime = None, end_time: dat
 @app.get("/trend/plot")
 def plot_asset_trend(
         request: Request,
+        asset_ids: str = None,
         start_date: datetime = None,
         end_date: datetime = None,
         current_user: User = Depends(get_current_user)
@@ -232,8 +233,18 @@ def plot_asset_trend(
     if not end_date:
         end_date = datetime.now()
 
-    # 获取所有资产
-    assets = AssetManager.list_assets()
+    # 获取所有资产或指定资产
+    if asset_ids:
+        # 解析资产ID列表
+        try:
+            asset_id_list = [int(aid) for aid in asset_ids.split(',')]
+            assets = Asset.select().where((Asset.id.in_(asset_id_list)) & (Asset.is_deleted == False))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="资产ID格式错误")
+    else:
+        # 获取所有资产
+        assets = AssetManager.list_assets()
+    
     asset_ids = [asset.id for asset in assets]
 
     # 计算趋势数据
@@ -249,7 +260,8 @@ def plot_asset_trend(
         orient='index',
         columns=['Total Value']
     )
-    df.index = pd.to_datetime(df.index)
+    # 修复时区处理问题，统一使用UTC时间
+    df.index = pd.to_datetime(df.index, utc=True)
     df = df.sort_index()
 
     plt.figure(figsize=(12, 6))

@@ -11,10 +11,14 @@ import matplotlib
 import matplotlib.pyplot as plt
 import pandas as pd
 from fastapi import FastAPI, Depends, HTTPException, Request, Form, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from peewee import DoesNotExist
+
+# 设置matplotlib支持中文显示
+matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS', 'DejaVu Sans']
+matplotlib.rcParams['axes.unicode_minus'] = False
 
 from models import Asset, AssetHistory, User, db, initialize_db
 from operations import TrendCalculator, AssetManager, UserManager
@@ -247,29 +251,89 @@ def plot_asset_trend(
     
     asset_ids = [asset.id for asset in assets]
 
-    # 计算趋势数据
-    trend_data = TrendCalculator.get_asset_trend(
-        asset_ids=asset_ids,
-        start_date=start_date,
-        end_date=end_date
-    )
+    # 计算趋势数据（按资产分别计算）
+    asset_data = {}
+    timestamps = set()
+    
+    for asset_id in asset_ids:
+        histories = (
+            AssetHistory.select()
+            .where(
+                (AssetHistory.asset == asset_id) &
+                (AssetHistory.timestamp.between(start_date, end_date))
+            )
+            .order_by(AssetHistory.timestamp)
+        )
+        
+        asset_data[asset_id] = {}
+        for history in histories:
+            timestamp = history.timestamp
+            timestamps.add(timestamp)
+            asset_data[asset_id][timestamp] = float(history.value)
+    
+    # 对缺失的数据点不进行插值处理
+    print(list(timestamps))
+    sorted_timestamps = sorted(list(timestamps))
+    
+    # 创建完整的数据结构
+    complete_data = {}
+    for asset_id in asset_ids:
+        complete_data[asset_id] = {}
+        asset_values = asset_data.get(asset_id, {})
+        
+        # 直接使用实际数据，没有数据则为0
+        for timestamp in sorted_timestamps:
+            complete_data[asset_id][timestamp] = asset_values.get(timestamp, 0)
 
-    # 生成趋势图
-    df = pd.DataFrame.from_dict(
-        trend_data,
-        orient='index',
-        columns=['Total Value']
-    )
-    # 修复时区处理问题，统一使用UTC时间
-    df.index = pd.to_datetime(df.index, utc=True)
+    # 构建用于绘图的数据框
+    plot_data = {}
+    for timestamp in sorted_timestamps:
+        for asset_id in asset_ids:
+            if timestamp not in plot_data:
+                plot_data[timestamp] = {}
+            plot_data[timestamp][asset_id] = complete_data[asset_id][timestamp]
+            
+    df = pd.DataFrame.from_dict(plot_data, orient='index')
+    df.index = pd.to_datetime(df.index)
     df = df.sort_index()
+    
+    # 计算总额
+    df['Total'] = df.sum(axis=1)
+    
+    # 获取资产名称
+    asset_names = {}
+    for asset in Asset.select().where(Asset.id.in_(asset_ids)):
+        asset_names[asset.id] = asset.name
 
-    plt.figure(figsize=(12, 6))
-    plt.plot(df.index, df['Total Value'], marker='o')
-    plt.title('Asset Trend')
-    plt.xlabel('Date')
-    plt.ylabel('Total Value')
-    plt.grid(True)
+    # 生成趋势图 - 使用堆叠面积图和总额折线图结合的方式
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    # 绘制堆叠面积图（各资产占比）
+    if len(asset_ids) > 0:
+        asset_columns = [col for col in df.columns if col != 'Total']
+        asset_labels = [asset_names.get(col, f'Asset {col}') for col in asset_columns]
+        ax.stackplot(df.index, 
+                    [df[col] for col in asset_columns],
+                    labels=asset_labels,
+                    alpha=0.7)
+    
+    # 绘制总额折线图（整体趋势）
+    ax.plot(df.index, df['Total'], 
+            color='black', 
+            marker='o', 
+            linewidth=2, 
+            label='总值')
+    
+    # 标注总额数值
+    for date, total in zip(df.index, df['Total']):
+        ax.text(date, total, f'{total:.0f}', 
+                ha='center', va='bottom')
+    
+    # 装饰图表
+    ax.set_title('资产趋势图')
+    ax.set_ylabel('价值')
+    ax.legend(loc='upper left')
+    ax.grid(axis='y', linestyle='--')
     plt.xticks(rotation=45)
     plt.tight_layout()
 
@@ -326,7 +390,6 @@ def login_page(request: Request):
 @app.post("/login", response_class=HTMLResponse)
 def login_post(
         request: Request,
-        response: Response,
         username: str = Form(...),
         password: str = Form(...)
 ):
@@ -338,12 +401,9 @@ def login_post(
         })
 
     # 创建session并设置cookie
-    resp = templates.TemplateResponse("index.html", {
-        "request": request,
-        "current_user": user
-    })
-    create_session_response(resp, user)
-    return resp
+    response = RedirectResponse(url="/", status_code=303)
+    create_session_response(response, user)
+    return response
 
 
 @app.get("/logout", response_class=HTMLResponse)
@@ -449,6 +509,8 @@ if __name__ == "__main__":
 
     # 初始化数据库
     initialize_db()
-
-    # 启动服务
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    try:
+        # 启动服务
+        uvicorn.run(app, host="0.0.0.0", port=8000)
+    except KeyboardInterrupt:
+        pass
